@@ -1,6 +1,6 @@
 // Сервис-воркер: приложение работает без интернета после первого открытия.
 // Когда обновишь файлы, поменяй номер версии, чтобы старый кеш удалился.
-const CACHE = 'fiktsionny-v1';
+const CACHE = 'fiktsionny-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'words.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

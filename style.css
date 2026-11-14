@@ -74,3 +74,10 @@ h2{margin:6px 0 10px;font-size:20px}
 .dock .kb{margin-top:0}
 .hearts{font-size:18px;white-space:nowrap}
 .node.boss{border:3px solid gold;width:88px;height:88px}
+
+textarea.inp{resize:vertical;font-family:inherit}
+textarea.code{font-size:12px;word-break:break-all}
+#nav{z-index:3}
+#nav button{font-size:14px}
+.fb .tip{font-size:13px;opacity:.85;margin-top:4px;font-weight:400}
+.fb>div{flex:1}

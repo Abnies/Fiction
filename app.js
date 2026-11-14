@@ -35,7 +35,7 @@ function word2cells(w) {
     const l = cs[cs.length - 1];
     if (LC[ch]) cs.push({t:'c',c:LC[ch],v:null,lane:false,m:[]});
     else if (LL[ch]) cs.push({t:'c',c:LL[ch],v:null,lane:true,m:[]});
-    else if (LV[ch]) { if (l && l.t === 'c' && !l.v) { l.v = LV[ch]; l.vm = VM[ch]; } else cs.push({t:'v',v:ch === 'о' ? 'o' : LV[ch],m:[],vm:ch === 'о' ? null : VM[ch]}); }
+    else if (LV[ch]) { if (l && l.t === 'c' && !l.v) { l.v = LV[ch]; l.vm = VM[ch]; } else cs.push({t:'v',v:ch === 'о' ? 'o' : LV[ch],m:[],vm:ch === 'о' || ch === 'а' ? null : VM[ch]}); }
     else if (ch === 'й') cs.push({t:'v',v:'i',m:['soft']});
     else if (ch === 'ь' && l && l.t === 'c') l.m.push('soft');
     else if (ch === 'ъ' && l && l.t === 'c') l.m.push('hard');
@@ -43,8 +43,18 @@ function word2cells(w) {
   }
   return cs;
 }
+// предложение -> символы (. ! ? = конец предложения); marks: показать и знаки значения гласной
+function text2cells(text, marks) {
+  const out = [];
+  text.toLowerCase().split(/([.!?]+)/).forEach(tok => {
+    if (/^[.!?]+$/.test(tok)) { out.push({t:'end'}); return; }
+    tok.split(/\s+/).filter(Boolean).forEach(w => { if (out.length) out.push({t:'sp'}); word2cells(w).forEach(c => out.push(c)); });
+  });
+  if (marks) out.forEach(c => { if (c.vm && !(c.m || []).includes(c.vm)) c.m = [...(c.m || []), c.vm]; });
+  return out;
+}
 // «подпись» слова для проверки: знаки и lane необязательны
-const sig = cs => cs.filter(c => c.t !== 'end').map(c => c.t === 'sp' ? ' ' : c.t + ':' + (c.c || '') + ':' + (c.v === 'o' ? 'a' : c.v || ''));
+const sig = cs => cs.filter(c => c.t !== 'end').map(c => c.t === 'sp' ? ' ' : c.t + ':' + (c.c || '') + ':' + (c.v || ''));
 function lev(a, b) {
   const d = Array.from({length: a.length + 1}, (_, i) => [i]);
   for (let j = 1; j <= b.length; j++) d[0][j] = j;
@@ -52,7 +62,7 @@ function lev(a, b) {
     d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
   return d[a.length][b.length];
 }
-const keysOf = cs => [...new Set(cs.flatMap(c => c.t === 'c' ? ['c:' + c.c].concat(c.v ? ['v:' + c.v] : []) : c.t === 'v' ? ['v:' + (c.v === 'o' ? 'a' : c.v)] : c.t === 'icon' ? ['i:' + c.name] : []))];
+const keysOf = cs => [...new Set(cs.flatMap(c => c.t === 'c' ? ['c:' + c.c].concat(c.v ? ['v:' + c.v] : []) : c.t === 'v' ? ['v:' + c.v] : c.t === 'icon' ? ['i:' + c.name] : []))];
 const cellId = c => c.t === 'c' ? 'c' + c.c + (c.v || '') + (c.lane ? 'L' : '') : c.t === 'v' ? 'v' + c.v : c.name || c.t;
 function textOf(c) { if (c.t === 'v') return VT[c.v].join('/'); if (c.t === 'c' && !c.v) return ctext(c); return translit([c]); }
 function promptOf(c) {
@@ -64,10 +74,22 @@ function promptOf(c) {
 /* ================= ДАННЫЕ ИГРОКА ================= */
 const KEY = 'fiktsionny_v1';
 let S;
+const DEF = () => ({xp:0,lessons:0,nick:'Фикционер' + (100 + rnd(900)),sound:true,streak:0,last:'',skill:{},hist:[],correct:0,answered:0,map:null,maps:0,recentW:[]});
 function load() {
   let o = null; try { o = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-  S = Object.assign({xp:0,lessons:0,nick:'Фикционер' + (100 + rnd(900)),sound:true,streak:0,last:'',skill:{},hist:[],correct:0,answered:0,map:null,maps:0,recentW:[]}, o || {});
+  S = Object.assign(DEF(), o || {});
   if (!S.map) S.map = newMap();
+}
+// код переноса прогресса
+function encodeSave() {
+  let bin = ''; new TextEncoder().encode(JSON.stringify(S)).forEach(b => { bin += String.fromCharCode(b); });
+  return 'FK1:' + btoa(bin);
+}
+function decodeSave(code) {
+  const bin = atob(code.trim().replace(/^FK1:/, '').replace(/\s+/g, ''));
+  const j = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+  if (!j || typeof j.xp !== 'number' || typeof j.skill !== 'object') throw new Error('bad');
+  return j;
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 const day = d => new Date(d).toLocaleDateString('sv');
@@ -154,7 +176,7 @@ function keyboard(T, onChange) {
 }
 
 /* ================= ЗАДАНИЯ ================= */
-const TH = {match:[0,60,150,260], build:[40,160], pairs:[80,200], translate:[120], write:[180]};
+const TH = {match:[0,60,150,260], build:[40,160], pairs:[80,200], translate:[120], write:[180], clean:[220]};
 const lvl = t => TH[t].filter(x => S.xp >= x).length;
 const mkCell = (c, v) => ({t:'c',c,v:v || null,lane:false,m:[]});
 function pool(level) {
@@ -205,6 +227,10 @@ const MK = {
     return {type:'pairs', items, once:true, keys:keysOf(items.flatMap(i => i.cells))};
   },
   translate(lw) { const x = pick(lw); useWords([x.w]); return {type:'translate', w:x.w, cells:x.cells, tries:0, keys:keysOf(x.cells)}; },
+  clean(lw) {
+    const x = pick(lw.filter(canOverload)); useWords([x.w]);
+    return {type:'clean', w:x.w, plain:x.cells, heavy:overload(x.cells), flip:Math.random() < .5, keys:keysOf(x.cells)};
+  },
   write(lw) { const x = pick(lw); useWords([x.w]); return {type:'write', w:x.w, cells:x.cells, tries:0, keys:keysOf(x.cells)}; }
 };
 let lastType = '';
@@ -213,6 +239,7 @@ function makeTask() {
   const add = (t, w) => { if (lvl(t) > 0) av.push([t, w]); };
   add('match', 4); add('build', 2); add('pairs', 2);
   if (lw.length) { add('translate', 2); add('write', 2); }
+  if (lw.some(canOverload)) add('clean', 1);
   let t = pickW(av, x => x[1])[0];
   if (t === lastType && av.length > 1) t = pickW(av, x => x[1])[0];
   lastType = t;
@@ -247,13 +274,15 @@ function nextTask() {
   const t = L.q[0]; t.tries = 0;
   R[t.type](t, L.body);
 }
-function answer(t, ok, info) {
+function answer(t, ok, info, tip) {
   S.answered++; if (ok) S.correct++; else { L.mist++; if (L.boss) { L.hearts--; renderHearts(); } }
   const bn = ok && t.bonus ? t.bonus : 0; L.bonus += bn;
   t.keys.forEach(k => { S.skill[k] = Math.max(0, sk(k) + (ok ? 1 : -1)); });
   beep(ok ? SND.ok : SND.bad);
   const fb = el('div', 'fb ' + (ok ? 'ok' : 'bad')), btn = el('button', 'btn', 'Дальше');
-  fb.append(el('b', '', ok ? 'Верно!' + (t.flag ? ' (есть небольшая ошибка)' : '') + (bn ? ' +' + bn + ' XP за знаки' : '') : 'Неверно. ' + (info || '')), btn);
+  const left = el('div'); left.append(el('b', '', ok ? 'Верно!' + (t.flag ? ' (есть небольшая ошибка)' : '') + (bn ? ' +' + bn + ' XP за знаки' : '') : 'Неверно. ' + (info || '')));
+  if (tip) left.append(el('div', 'tip', tip));
+  fb.append(left, btn);
   document.body.append(fb);
   document.querySelectorAll('#app button:not(.x), #app input').forEach(b => { b.disabled = true; });
   btn.onclick = () => {
@@ -287,6 +316,38 @@ function lose() {
   b.onclick = startLesson; m.onclick = showMap; m.style.marginLeft = '10px';
   a.append(el('h2', '', 'Жизни закончились 🖤'), el('p', 'dim', 'Опыт за этот урок не начислен. Попробуй ещё раз.'), b, m);
 }
+const TIP_GEN = 'Знаки уточнения необязательны: ставь их только там, где слово можно прочитать двумя способами (например, в именах).';
+const TIPS = {
+  a: 'Отдельная АО всегда читается как «А» (для «О» есть своя отдельная буква), знак ^ ей не нужен. Знаки уточнения вообще необязательны.',
+  single: 'У букв У, Э, Я, Ю, отдельной О одно значение, знаки ^ и ↓ на них не нужны. Знаки уточнения вообще необязательны.',
+  lane: 'Lane нужен только парным согласным (ч/ц, ш/щ, з/с, б/ф). Знаки уточнения вообще необязательны.'
+};
+function redundantMarks(T) {
+  const r = new Set();
+  T.forEach(c => {
+    if (c.t !== 'c' && c.t !== 'v') return;
+    const m = c.m || [], vm = m.includes('first') || m.includes('second');
+    if (c.t === 'v' && c.v === 'a' && vm) r.add('a');
+    else if (vm && (!c.v || SINGLE.includes(c.v) || c.v === 'o')) r.add('single');
+    if (c.t === 'c' && c.lane && !CT2[c.c]) r.add('lane');
+  });
+  return r;
+}
+// запись слова, перегруженная знаками (для задания «Какая запись естественнее»)
+function overload(cs) {
+  return cs.map(c => {
+    const n = JSON.parse(JSON.stringify(c));
+    if (n.t === 'c' || n.t === 'v') {
+      n.m = n.m || [];
+      if (n.vm && !n.m.includes(n.vm)) n.m.push(n.vm);
+      else if (n.t === 'v' && n.v === 'a') n.m.push('first');
+      else if (n.v && SINGLE.includes(n.v)) n.m.push('first');
+    }
+    return n;
+  });
+}
+const canOverload = x => JSON.stringify(overload(x.cells)) !== JSON.stringify(x.cells);
+
 // +1 за каждый верно поставленный знак (мягкость, твёрдость, значение гласной, lane)
 function marksBonus(T, tc) {
   let n = 0;
@@ -373,23 +434,39 @@ const R = {
     chk.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go(); };
     h.append(inp, chk); inp.focus();
   },
+  clean(t, h) {
+    h.append(el('div', 'prompt', 'Какая запись слова «' + t.w + '» естественнее?'), el('div', 'dim', 'Знаки уточнения необязательны, их ставят только в редких случаях.'));
+    const g = el('div'); g.style.cssText = 'display:grid;gap:10px;margin-top:12px';
+    const opts = [{cs:t.plain, good:true}, {cs:t.heavy, good:false}]; if (t.flip) opts.reverse();
+    opts.forEach(o => {
+      const b = el('button', 'tile'), row = el('div'); b.style.setProperty('--g', '44px');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:2px;justify-content:center'; o.cs.forEach(c => row.append(cellEl(c))); b.append(row);
+      b.onclick = () => { g.querySelectorAll('.tile').forEach((x, i) => { if (opts[i].good) x.classList.add('ok'); }); if (!o.good) b.classList.add('bad'); answer(t, o.good, 'Лишние знаки писать не нужно.', o.good ? TIP_GEN : ''); };
+      g.append(b);
+    });
+    h.append(g);
+  },
   write(t, h) {
     h.append(el('div', 'prompt', 'Напишите слово: ' + t.w), el('div', 'dim', 'Верные знаки сверху и lane дают +1 XP за каждый'));
     const T = [], out = el('div', 'out'), chk = el('button', 'btn', 'Проверить'), dock = el('div', 'dock');
     out.style.setProperty('--g', '48px');
     const draw = () => { out.replaceChildren(...T.map(cellEl)); };
     chk.onclick = () => {
+      // отдельная О сразу после согласной без гласной (должна быть АО поверх) — ошибка без второго шанса
+      if (T.some((c, i) => c.t === 'v' && c.v === 'o' && T[i - 1] && T[i - 1].t === 'c' && !T[i - 1].v))
+        return answer(t, false, 'После согласной О пишется поверх неё (символ АО со знаком ↓). Отдельная О только в начале слова или после гласной. Слово: ' + t.w);
       const d = lev(sig(T), sig(t.cells));
       if (d > 1 && t.tries < 1) { t.tries++; out.classList.add('shake'); setTimeout(() => out.classList.remove('shake'), 300); return; }
       if (d === 1) t.flag = true; else if (d === 0) t.bonus = marksBonus(T, t.cells);
-      answer(t, d <= 1, 'Правильно: ' + t.w);
+      const r = redundantMarks(T);
+      answer(t, d <= 1, 'Правильно: ' + t.w, d > 1 ? '' : r.size ? TIPS[[...r][0]] : (Math.random() < .35 ? TIP_GEN : ''));
     };
     dock.append(chk, keyboard(T, draw)); h.append(out, dock); h.style.paddingBottom = '330px'; draw();
   }
 };
 
 /* ================= ЭКРАНЫ ================= */
-function nav(v) { document.getElementById('nav').style.display = 'flex'; document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.go === v)); }
+function nav(v) { $app().style.paddingBottom = ''; document.querySelector('#nav [data-go=translate]').textContent = S.xp >= 1000 ? 'Переводчик' : '🔒 Переводчик'; document.getElementById('nav').style.display = 'flex'; document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.go === v)); }
 function showMap() {
   nav('map'); const a = $app(); a.replaceChildren();
   const top = el('div', 'top'); top.append(el('b', '', '🔥 ' + streakNow()), el('b', '', S.xp + ' XP'));
@@ -422,15 +499,57 @@ function showSettings() {
   rs.onclick = () => {
     if (confirm('Сбросить все данные?') && confirm('Точно? Весь прогресс будет удалён.') && confirm('Последнее подтверждение: удалить всё без возможности вернуть?')) { try { localStorage.removeItem(KEY); } catch (e) {} load(); showMap(); }
   };
+  const tr = el('button', 'btn ghost', 'Перенос прогресса'); tr.onclick = showTransfer;
   const bk = el('button', 'btn ghost', '← Назад'); bk.onclick = showAccount;
-  [snd, rs, bk].forEach(b => { b.style.cssText = 'display:block;width:100%;margin-bottom:10px'; });
-  a.append(el('h2', '', 'Настройки'), snd, rs, bk);
+  [snd, tr, rs, bk].forEach(b => { b.style.cssText = 'display:block;width:100%;margin-bottom:10px'; });
+  a.append(el('h2', '', 'Настройки'), snd, tr, rs, bk);
+}
+
+function showTransfer() {
+  nav('account'); const a = $app(); a.replaceChildren();
+  const mine = el('textarea', 'inp code'), inp = el('textarea', 'inp code'), cp = el('button', 'btn', 'Скопировать код'), go = el('button', 'btn', 'Загрузить прогресс'), bk = el('button', 'btn ghost', '← Назад');
+  mine.readOnly = true; mine.rows = 5; mine.value = encodeSave(); inp.rows = 5; inp.placeholder = 'Вставь код с другого устройства';
+  cp.onclick = () => { mine.select(); try { navigator.clipboard.writeText(mine.value).catch(() => document.execCommand('copy')); } catch (e) { document.execCommand('copy'); } cp.textContent = 'Скопировано'; };
+  go.onclick = () => {
+    let j; try { j = decodeSave(inp.value); } catch (e) { alert('Код не подошёл. Проверь, что он скопирован целиком.'); return; }
+    if (!confirm('Заменить прогресс на этом устройстве прогрессом из кода?')) return;
+    S = Object.assign(DEF(), j); if (!S.map) S.map = newMap(); save(); showMap();
+  };
+  bk.onclick = showSettings;
+  a.append(el('h2', '', 'Перенос прогресса'), el('p', 'dim', 'Твой код (скопируй и вставь на другом устройстве):'), mine, cp, el('p', 'dim', 'Вставить код с другого устройства:'), inp, go, bk);
+  [cp, go, bk].forEach(b => { b.style.cssText = 'display:block;width:100%;margin-bottom:10px'; });
+}
+
+let trDir = 'ru2f', trRu = '', trMarks = false; const trT = [];
+function showTranslator() {
+  nav('translate'); const a = $app(); a.replaceChildren();
+  if (S.xp < 1000) {
+    const bar = el('div', 'bar'), i = el('i'); i.style.width = S.xp / 10 + '%'; bar.append(i);
+    a.append(el('h2', '', 'Переводчик 🔒'), el('p', 'dim', 'Откроется за 1000 XP. Сейчас: ' + S.xp + ' XP.'), bar); return;
+  }
+  const ru = trDir === 'ru2f', top = el('div', 'top'), sw = el('button', 'btn ghost', '⇄');
+  top.append(el('b', '', ru ? 'Русский' : 'Фикционный'), sw, el('b', '', ru ? 'Фикционный' : 'Русский'));
+  sw.onclick = () => { trDir = ru ? 'f2ru' : 'ru2f'; showTranslator(); };
+  a.append(top);
+  if (ru) {
+    const inp = el('textarea', 'inp'), out = el('div'), chk = el('label', 'dim'), cb = el('input');
+    inp.rows = 3; inp.placeholder = 'Введи текст по-русски'; inp.value = trRu;
+    cb.type = 'checkbox'; cb.checked = trMarks; chk.append(cb, ' со знаками значения гласных');
+    const upd = () => { trRu = inp.value; trMarks = cb.checked; out.replaceChildren(cellsEl(text2cells(trRu, trMarks), '48px')); };
+    inp.oninput = upd; cb.onchange = upd;
+    a.append(inp, chk, el('div', 'dim', 'Точка, ! и ? дают знак конца предложения.'), out); upd();
+  } else {
+    const out = el('div'), res = el('div', 'card'), dock = el('div', 'dock');
+    const upd = () => { out.replaceChildren(cellsEl(trT, '48px')); res.textContent = translit(trT) || 'Здесь появится перевод'; };
+    dock.append(keyboard(trT, upd)); dock.style.bottom = document.getElementById('nav').offsetHeight + 'px';
+    a.append(out, res, el('div', 'dim', 'Если вариантов два (з/с), поставь знаки lane, ^ или ↓.'), dock); a.style.paddingBottom = '380px'; upd();
+  }
 }
 
 /* ================= СТАРТ ================= */
 function main() {
   load();
-  document.querySelectorAll('#nav button').forEach(b => { b.onclick = () => (b.dataset.go === 'map' ? showMap : showAccount)(); });
+  document.querySelectorAll('#nav button').forEach(b => { b.onclick = () => ({map:showMap, account:showAccount, translate:showTranslator})[b.dataset.go](); });
   showMap();
 }
 if (typeof document !== 'undefined') main();
